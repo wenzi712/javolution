@@ -297,7 +297,7 @@ public class JAXBAnnotatedObjectReaderImpl extends AbstractJAXBAnnotatedObjectPa
 		// We'll push the output object onto the stack as an initial entry. All stack entries get wrapped in an AnnotationStackData class.
 		// The fields in this class are package-private to provide as cheap of access as possible since they are used frequently.
 		AnnotationStackData stackData;
-		FastSet<CharArray> requiredSet = new FastSet<CharArray>(Order.LEXICAL);
+		FastSet<CharArray> requiredSet = new FastSet<CharArray>(Order.lexical());
 		
 		if(_isValidating){
 			stackData = new AnnotationStackData(AnnotationStackType.ROOT, null, outputObject, null, inputClass, null,
@@ -769,7 +769,7 @@ public class JAXBAnnotatedObjectReaderImpl extends AbstractJAXBAnnotatedObjectPa
 		return elementStackData;
 	}
 
-	@SuppressWarnings("unchecked")
+	@SuppressWarnings({ "unchecked", "deprecation" })
 	private void invokeMethod(final Method method, final Class<?> type, final Object object, final CharArray value, final Enum<?> enumValue) throws IllegalAccessException, IllegalArgumentException, InvocationTargetException, UnmarshalException, ParseException{
 		InvocationClassType invocationClassType;
 
@@ -979,6 +979,7 @@ public class JAXBAnnotatedObjectReaderImpl extends AbstractJAXBAnnotatedObjectPa
 		}
 	}
 
+	@SuppressWarnings("deprecation")
 	private static <T> T reflectNewInstance(final Class<T> objClass) throws UnmarshalException{
 		final T outputObject;
 
@@ -992,6 +993,7 @@ public class JAXBAnnotatedObjectReaderImpl extends AbstractJAXBAnnotatedObjectPa
 		return outputObject;
 	}
 
+	@SuppressWarnings("deprecation")
 	private Object reflectNewInstance(final Class<?> instanceClass, final CacheData cacheData, final CharArray localXmlElementName) throws UnmarshalException {
 		final Object instance;
 
@@ -1151,7 +1153,7 @@ public class JAXBAnnotatedObjectReaderImpl extends AbstractJAXBAnnotatedObjectPa
 				_processedSet = null;
 			}
 			else {
-				_processedSet = new FastSet<CharArray>(Order.LEXICAL).linked();
+				_processedSet = new FastSet<CharArray>(Order.lexical()).linked();
 			}
 		}
 

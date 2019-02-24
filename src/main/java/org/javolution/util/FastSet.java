@@ -17,7 +17,6 @@ import org.javolution.annotations.Nullable;
 import org.javolution.annotations.Parallel;
 import org.javolution.annotations.Realtime;
 import org.javolution.lang.MathLib;
-import org.javolution.util.function.Consumer;
 import org.javolution.util.function.Equality;
 import org.javolution.util.function.Indexer;
 import org.javolution.util.function.Order;
@@ -109,7 +108,7 @@ public class FastSet<E> extends AbstractSet<E> {
 
     /** Creates a {@link Equality#STANDARD standard} set arbitrarily ordered (hash order). */
     public FastSet() {
-        this(Order.STANDARD);
+        this(Order.standard());
     }
 
     /** Creates a {@link Equality#STANDARD standard} set ordered using the specified indexer function.*/
@@ -140,7 +139,7 @@ public class FastSet<E> extends AbstractSet<E> {
     public final Immutable<E> freeze() {
         singles = singles.unmodifiable();
         for (FractalArray.Iterator<AbstractSet<E>> itr = multiples.iterator(); itr.hasNext();) {
-            int index = itr.nextIndex();
+            long index = itr.nextIndex();
             multiples.set(index, itr.next().unmodifiable()); // Replaces.
         }
         multiples = multiples.unmodifiable();
@@ -148,7 +147,7 @@ public class FastSet<E> extends AbstractSet<E> {
     }
 
     @Override
-    public FastSet<E> with(E... elements) {
+    public FastSet<E> with(@SuppressWarnings("unchecked") E... elements) {
         addAll(elements);
         return this;
     }
@@ -162,7 +161,7 @@ public class FastSet<E> extends AbstractSet<E> {
     @Override
     @Realtime(limit = CONSTANT)
     public final boolean add(E element, boolean allowDuplicate) {
-        int index = order.indexOf(element);
+        long index = order.indexOf(element);
         AbstractSet<E> multiple = multiples.get(index);
         if (multiple != null) {
             if (!multiple.add(element, allowDuplicate)) return false;            
@@ -170,7 +169,7 @@ public class FastSet<E> extends AbstractSet<E> {
             E single = singles.get(index);
             if (single != null) {
                 if (!allowDuplicate && order.areEqual(element, single)) return false;
-                singles = singles.set(index, null); // No more single.
+                singles = singles.clear(index); // No more single.
                 Order<? super E> subOrder = order.subOrder(element); 
                 multiple = (subOrder != null) ? new FastSet<E>(subOrder) : new SortedSetImpl<E>(order);
                 multiples = multiples.set(index, multiple);
@@ -186,7 +185,7 @@ public class FastSet<E> extends AbstractSet<E> {
     @Realtime(limit = CONSTANT)
     @Override
     public final E getAny(E element) {
-        int index = order.indexOf(element);
+        long index = order.indexOf(element);
         AbstractSet<E> multiple = multiples.get(index);
         if (multiple != null) {
             return multiple.getAny(element);            
@@ -211,7 +210,7 @@ public class FastSet<E> extends AbstractSet<E> {
         copy.singles = singles.clone();
         copy.multiples = multiples.clone();
         for (FractalArray.Iterator<AbstractSet<E>> itr = multiples.iterator(); itr.hasNext();) {
-            int index = itr.nextIndex();
+            long index = itr.nextIndex();
             AbstractSet<E> multiple = itr.next();
             copy.multiples.set(index, multiple.clone()); // Replaces.
         }
@@ -260,19 +259,19 @@ public class FastSet<E> extends AbstractSet<E> {
     @Realtime(limit = CONSTANT)
     public final E removeAny(E element) {
         E removed;
-        int index = order.indexOf(element);
+        long index = order.indexOf(element);
         AbstractSet<E> multiple = multiples.get(index);
         if (multiple != null) {
             removed = multiple.removeAny(element);
             if (removed == null) return null;
             if (multiple.size() == 1) { // Go back to single.
                 singles = singles.set(index, multiple.findAny());
-                multiples = FractalArray.empty();
+                multiples = multiples.clear(index);
             }
         } else {
             removed = singles.get(index);
             if ((removed == null) || !order.areEqual(element, removed)) return null;
-            singles = singles.set(index, null);
+            singles = singles.clear(index);
         }
         --size;
         return removed;
@@ -282,17 +281,17 @@ public class FastSet<E> extends AbstractSet<E> {
     public final boolean removeIf(Predicate<? super E> filter) {
         int initialSize = size;
         for (FractalArray.Iterator<AbstractSet<E>> itr = multiples.iterator(); itr.hasNext();) {
-            int index = itr.nextIndex();
+            long index = itr.nextIndex();
             AbstractSet<E> multiple = itr.next();
             int sizeBefore = multiple.size();
             multiple.removeIf(filter);
             int sizeAfter = multiple.size();
-            if (sizeAfter <= 1) multiples.set(index, null);
-            if (sizeAfter == 1) singles.set(index, multiple.findAny());
+            if (sizeAfter <= 1) multiples = multiples.clear(index);
+            if (sizeAfter == 1) singles = singles.set(index, multiple.findAny());
             size += sizeAfter - sizeBefore;
         }
-        for (FractalArray.Iterator<E> itr = singles.iterator(); itr.hasNext(filter);) {
-            singles.set(itr.nextIndex(), null);
+        for (FractalArray.Iterator<E> itr = singles.iterator(); itr.hasNext(filter); itr.next()) {
+            singles = singles.clear(itr.nextIndex());
             --size;
         }
         return initialSize != size;
@@ -307,16 +306,16 @@ public class FastSet<E> extends AbstractSet<E> {
     @Override
     @Realtime(limit = CONSTANT)
     public final E findAny() {
-        if (!singles.isEmpty()) return singles.get(singles.ceiling(0, Consumer.DO_NOTHING));
-        if (!multiples.isEmpty()) return multiples.get(multiples.ceiling(0, Consumer.DO_NOTHING)).findAny();
+        if (!singles.isEmpty()) return singles.get(singles.next(0, -1, Predicate.TRUE));
+        if (!multiples.isEmpty()) return multiples.get(multiples.next(0, -1, Predicate.TRUE)).findAny();
         return null;
     }
 
     @Override
     @Realtime(limit = CONSTANT)
     public final E first() {
-        int s = singles.ceiling(0, Consumer.DO_NOTHING);
-        int m = multiples.ceiling(0, Consumer.DO_NOTHING);
+        long s = singles.next(0, -1, Predicate.TRUE);
+        long m = multiples.next(0, -1, Predicate.TRUE);
         AbstractSet<E> innerSet;
         if (!MathLib.unsignedLessThan(s, m) && ((innerSet = multiples.get(m)) != null)) 
             return innerSet.first();
@@ -327,8 +326,8 @@ public class FastSet<E> extends AbstractSet<E> {
     @Override
     @Realtime(limit = CONSTANT)
     public final E last() {
-        int s = singles.floor(-1, Consumer.DO_NOTHING);
-        int m = multiples.floor(-1, Consumer.DO_NOTHING);
+        long s = singles.next(-1, 0, Predicate.TRUE);
+        long m = multiples.next(-1, 0, Predicate.TRUE);
         AbstractSet<E> innerSet;
         if (!MathLib.unsignedLessThan(m, s) && ((innerSet = multiples.get(m)) != null)) 
             return innerSet.last();
@@ -345,7 +344,7 @@ public class FastSet<E> extends AbstractSet<E> {
         
         @SuppressWarnings("unchecked")
         public AscendingIteratorImpl(@Nullable E from) {
-            int i = (from != null) ? order.indexOf(from) : 0;
+            long i = (from != null) ? order.indexOf(from) : 0;
             singleItr = singles.iterator(i);
             multipleItr = multiples.iterator(i);            
             if (multipleItr.hasNext() && !MathLib.unsignedLessThan(singleItr.nextIndex(), multipleItr.nextIndex())) {
@@ -398,7 +397,7 @@ public class FastSet<E> extends AbstractSet<E> {
         
         @SuppressWarnings("unchecked")
         public DescendingIteratorImpl(@Nullable E from) {
-            int i = (from != null) ? order.indexOf(from) : -1;
+            long i = (from != null) ? order.indexOf(from) : -1;
             singleItr = singles.descendingIterator(i);
             multipleItr = multiples.descendingIterator(i);            
             if (multipleItr.hasNext() && !MathLib.unsignedLessThan(multipleItr.nextIndex(), singleItr.nextIndex())) {

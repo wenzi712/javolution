@@ -16,7 +16,7 @@ import org.javolution.util.function.Indexer;
 import org.javolution.util.function.Order;
 
 /**
- * High-performance ordered map / multimap based upon fast-access {@link SparseArray}. 
+ * High-performance ordered map / multimap based upon fast-access {@link FractalArray}. 
  *     
  * Iterations order over map keys, values or entries is determined by the map {@link #keyOrder key order} except 
  * for specific views such as the {@link #linked linked view} for which iteration is performed according to the 
@@ -80,7 +80,7 @@ import org.javolution.util.function.Order;
  * ```java
  * FastMap<String, Index> wordCounts = new FastMap<>(LEXICAL); // Sorted. 
  * ...
- * wordCounts.put(word, (v) -> v != null ? v.next() : Index.ONE); // Increments word count.
+ * wordCounts.put(word, (previousCount) -> previousCount != null ? previousCount.next() : Index.ONE); 
  * ```
  * 
  * Finally, this class provides full support for multimaps (multimaps stores pairs of (key, value) where both 
@@ -133,7 +133,7 @@ public class FastMap<K, V> extends AbstractMap<K, V> {
     
     /** Creates a {@link Equality#STANDARD standard} map arbitrarily ordered. */
     public FastMap() {
-        this(Order.STANDARD);
+        this(Order.standard());
     }
 
     /** Creates a {@link Equality#STANDARD standard} map ordered using the specified indexer function 
@@ -144,7 +144,7 @@ public class FastMap<K, V> extends AbstractMap<K, V> {
 
     /** Creates a custom map ordered using the specified key order. */
     public FastMap(final Order<? super K> keyOrder) {
-        this(keyOrder, Equality.STANDARD);
+        this(keyOrder, Equality.standard());
     }
 
     /** Creates a custom map ordered using the specified key order and using the specified equality for 
@@ -157,17 +157,22 @@ public class FastMap<K, V> extends AbstractMap<K, V> {
 
             @Override
             public boolean areEqual(Entry<K, V> left, Entry<K, V> right) {
+            	if (left == right) return true;
+            	if ((left == null) || (right == null)) return false;
                 return FastMap.this.keyOrder.areEqual(left.getKey(), right.getKey()) && 
                         FastMap.this.valuesEquality.areEqual(left.getValue(), right.getValue());
             }
 
             @Override
             public int compare(Entry<K, V> left, Entry<K, V> right) {
+            	if (left == null) return -1;
+            	if (right == null) return 1;
                 return FastMap.this.keyOrder.compare(left.getKey(), right.getKey());
             }
 
             @Override
-            public int indexOf(Entry<K, V> entry) {
+            public long indexOf(Entry<K, V> entry) {
+            	if (entry == null) return 0;
                 return FastMap.this.keyOrder.indexOf(entry.getKey());
             }
 

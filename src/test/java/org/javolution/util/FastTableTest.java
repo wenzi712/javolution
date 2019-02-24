@@ -12,13 +12,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
+import java.util.Random;
+
 import org.javolution.util.FastTable;
+import org.javolution.util.FractalArray;
 import org.junit.Before;
 import org.junit.Test;
 
 public class FastTableTest {
 
 	private FastTable<String> _fastTable;
+
 	
 	@Before
 	public void init(){
@@ -27,6 +32,41 @@ public class FastTableTest {
 		_fastTable.add("Test2");
 		_fastTable.add("Test3");
 	}
+
+	
+	
+	// PROBLEM: OK WHEN SIZE = 100, KO WHEN SIZE = 1000
+	private static final int SIZE = 1000;
+	
+	@Test
+	public void testArray(){
+			Random rnd = new Random(0);
+			ArrayList<Integer> al = new ArrayList<>();
+			FastTable<Integer> ft = new FastTable<>();
+			for (int ii= 0; ii < SIZE; ii++) {
+		   	    int j = rnd.nextInt(al.size()+1);
+		   	    int n = rnd.nextInt(1000000);
+				System.out.println(" insert " + j);
+				System.out.println(" size " + al.size());
+				al.add(j, n);
+			    ft.add(j, n);
+						
+			    for (int k=0; k < al.size(); k++) {
+			    	if (!al.get(k).equals(ft.get(k))) {
+			    		System.out.println(k);
+					    		
+			    	}
+			    }
+			    //System.out.println(al);
+			    //System.out.println(ft);
+			    assertEquals(al.toString(), ft.toString());
+			}
+	}
+	
+
+	
+	
+	
 	
 	@Test
 	public void testAdd(){

@@ -30,7 +30,7 @@ import org.javolution.util.function.Predicate;
  * ```java
  * FastTable<CharSequence> names = new FastTable<>(); 
  * ...
- * names.sort(Order.LEXICAL_CASE_INSENSITIVE); // Sorts the names in place (different from sorted() which returns a sorted view).
+ * names.sort(Order.lexical()_CASE_INSENSITIVE); // Sorts the names in place (different from sorted() which returns a sorted view).
  * names.subTable(0, names.size() / 2).clear(); // Removes the first half of the table (see java.util.List.subList specification).
  * names.filter(str -> str.startsWith("A")).clear(); // Removes all the names starting with "A" (Java 8 notation).
  * names.filter(str -> str.startsWith("A")).parallel().clear(); // Same as above but removal performed concurrently.
@@ -102,7 +102,7 @@ public class FastTable<E> extends AbstractTable<E> {
     }
 
     @Override
-    public FastTable<E> with(E... elements) {
+    public FastTable<E> with(@SuppressWarnings("unchecked") E... elements) {
         addAll(elements);
         return this;
     }
@@ -110,7 +110,7 @@ public class FastTable<E> extends AbstractTable<E> {
     @Override
     @Realtime(limit = CONSTANT)
     public final boolean add(@Nullable E element) {
-        array = array.insert(length++, element);
+        array = array.set(length++, element);
         return true;
     }
 
@@ -118,14 +118,14 @@ public class FastTable<E> extends AbstractTable<E> {
     @Realtime(limit = LOG_N)
     public final void add(int index, @Nullable E element) {
         if (index < 0 || index > length) throw new IndexOutOfBoundsException();
-        array = array.insert(index, element);
-        length++;
+        array = array.shift(index, length++, element);
     }
 
     @Override
     @Realtime(limit = CONSTANT)
     public  void clear() {
         array = FractalArray.empty();
+        length = 0;
     }
 
     @Override
@@ -139,7 +139,7 @@ public class FastTable<E> extends AbstractTable<E> {
     @Override
     @Realtime(limit = CONSTANT)
     public final Equality<? super E> equality() {
-        return Equality.STANDARD;
+        return Equality.standard();
     }
 
     @Override
@@ -160,8 +160,7 @@ public class FastTable<E> extends AbstractTable<E> {
     public final @Nullable E remove(int index) {
         if (index < 0 || index >= length) throw new IndexOutOfBoundsException();
         E removed = array.get(index);
-        array = array.remove(index);
-        --length;
+        array = array.shift(--length, index, null);
         return removed;
     }
 
@@ -180,27 +179,29 @@ public class FastTable<E> extends AbstractTable<E> {
         return length;
     }
 
-    /** Iterator Implementation. */
+    /** List Iterator Implementation. */
     private static final class IteratorImpl<E> implements FastListIterator<E> {
         private final FractalArray<E> array;
-        private int next;
+        private int nextIndex;
         private int length;
 
-        public IteratorImpl(FractalArray<E> array, int length, int next) {
+        public IteratorImpl(FractalArray<E> array, int length, int nextIndex) {
             this.array = array;
             this.length = length;
-            this.next = next;
+            this.nextIndex = nextIndex;
         }
 
         @Override
         public boolean hasNext() {
-            return next < length;
+            return nextIndex < length;
         }
 
         @Override
         public boolean hasNext(Predicate<? super E> matching) {
-            while (next < length) if (matching.test(array.get(next++))) return true;
-            return false;
+        	nextIndex = (int) array.next(nextIndex, -1, matching);
+        	if (nextIndex != -1) return true;
+        	nextIndex = length;
+        	return false;
         }
 
         @Override
@@ -215,35 +216,38 @@ public class FastTable<E> extends AbstractTable<E> {
 
         @Override
         public boolean hasPrevious() {
-            return next > 0;
+            return nextIndex > 0;
         }
 
         @Override
         public boolean hasPrevious(Predicate<? super E> matching) {
-            while (next > 0) if (matching.test(array.get(--next))) return true;
+        	if (nextIndex == 0) return false;
+           	nextIndex = (int) array.next(nextIndex - 1, 0, matching);
+          	if (nextIndex++ != -1) return true;
+           	nextIndex = 0;
             return false;
         }
 
         @Override
         public E next() {
-            if (next >= length) throw new NoSuchElementException();
-            return array.get(next++);
+            if (nextIndex >= length) throw new NoSuchElementException();
+            return array.get(nextIndex++);
         }
 
         @Override
         public int nextIndex() {
-            return next;
+            return nextIndex;
         }
 
         @Override
         public E previous() {
-            if (next <= 0) throw new NoSuchElementException();
-            return array.get(--next);
+            if (nextIndex <= 0) throw new NoSuchElementException();
+            return array.get(--nextIndex);
         }
 
         @Override
         public int previousIndex() {
-            return next - 1;
+            return nextIndex - 1;
         }
 
         @Override

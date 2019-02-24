@@ -17,13 +17,13 @@ import java.util.NoSuchElementException;
 
 import org.javolution.annotations.Nullable;
 import org.javolution.annotations.Realtime;
-import org.javolution.util.function.Consumer;
 import org.javolution.util.function.Predicate;
 import org.javolution.util.internal.FractalArrayImpl;
 
 /**
- * A [fractal-based], fast access, unbounded array maintaining its memory footprint minimal.
- *      
+ * A [fractal-based] array supporting 64-bits indexing, fast rotation and minimal memory footprint (they can 
+ * be used for dense or sparse vectors alike).
+ *       
  * Updates operations on fractals may return new instances with greater or lesser capacity. 
  * 
  * ```java
@@ -35,8 +35,8 @@ import org.javolution.util.internal.FractalArrayImpl;
  * }
  * ```
  * 
- * Fractal arrays element insertions / deletions are in {@link Realtime.Limit#LOG_N O(Log(n))}
- * regardless of the number of elements held by the array.    
+ * Fractal arrays index {@link #shift} operation is performed in {@link Realtime.Limit#LOG_N O(Log(n))}
+ * where {@code n} is the number of elements held by the array, up to 2^64 !    
  *  
  * [fractal-based]: http://en.wikipedia.org/wiki/Fractal
  * 
@@ -46,14 +46,14 @@ import org.javolution.util.internal.FractalArrayImpl;
 @Realtime(limit=CONSTANT)
 public abstract class FractalArray<E> implements Cloneable, Serializable, Iterable<E> {
     private static final long serialVersionUID = 0x700L; // Version.
- 
+  
     /** 
      * Iterator over fractal arrays.
      */
     public interface Iterator<E> extends FastIterator<E> {
         
-        /** Returns the index of the next element (undefined if there is no next element). */
-        int nextIndex();
+        /** Returns the unsigned 64-bits index of the next {@code non-null} element , {@code -1} when there is none. */
+        long nextIndex();
 
     }
 
@@ -73,111 +73,104 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
     public abstract FractalArray<E> clone();
     
     /** 
-     * Indicates if this fractal has no element different from {@code null}.
+     * Indicates if this fractal has no element
      * 
-     * @param index the unsigned 32-bits index of the value to return.
-     * @return {@code true} if all elements are {@code null}; {@code false} otherwise.
+     * @return {@code true} if there is no elements different from {@code null}; {@code false} otherwise.
      */
     @Realtime(limit=CONSTANT)
     public abstract boolean isEmpty();
     
     /** 
-     * Returns the value at the specified index (unsigned 32-bits).
+     * Returns the value at the specified index (unsigned 64-bits).
      * 
      * @param index the unsigned index of the value to return.
      * @return the value at the specified index or {@code null} if none.
      */
     @Realtime(limit=CONSTANT)
-    public abstract @Nullable E get(int index);
+    public abstract @Nullable E get(long index);
     
     /** 
-     * Returns the value at the specified index or the specified default if that value is {@code null} 
-     * (convenience method). 
+     * Returns the value at the specified index (unsigned 64-bits) or the specified default if that value
+     * is {@code null}. 
      * 
-     * @param index the unsigned 32-bits index of the value to return.
+     * @param index the unsigned 64-bits index of the value to return.
      * @param defaultIfNull the value to return instead of {@code null}.
      * @return the value at the specified index or the specified default.
      */
     @Realtime(limit=CONSTANT)
-    public final E get(int index, E defaultIfNull) {
+    public final E get(long index, E defaultIfNull) {
         E value = get(index);
         return (value != null) ? value : defaultIfNull;
     }
 
     /**
-     * Sets the element at the specified position (can be {@code null} to remove the previous element).
+     * Clears the element at the specified index (unsigned 64-bits).
      * 
-     * @param index the unsigned 32-bits index of the value to be set.
+     * @param index the unsigned 64-bits index of the value to clear.
+     * @return a new fractal array or {@code this}. 
+     */
+    @Realtime(limit=CONSTANT)
+    public abstract FractalArray<E> clear(long index);
+
+    /**
+     * Sets the element at the specified index (unsigned 64-bits), equivalent to {@link clear}
+     * if the element is {@code null}.
+     * 
+     * @param index the unsigned 64-bits index of the value to be set.
      * @param element the element at the specified position (can be {@code null}). 
      * @return a new fractal array or {@code this}. 
      */
     @Realtime(limit=CONSTANT)
-    public abstract FractalArray<E> set(int index,  @Nullable E element);
+    public abstract FractalArray<E> set(long index,  @Nullable E element);
 
     /**
-     * Inserts the specified element at the {@code index} position, shifting the previous elements from {@code index} 
-     * one position to the right.
+     * Shift the elements from the specified {@code from} index included (unsigned 64-bits) towards the specified 
+     * {@code to} index one position, to the right if {@code from < to}, to the left if {@code to < from}. 
+     * The element previously at {@code to} position is discarded and the specified element is inserted at 
+     * the {@code from} position.
      * 
-     * @param index the index position of the element to be inserted.
-     * @param element the element being inserted.
-     * @return the array with the specified element inserted.
+     * @param from the unsigned 64-bits index of the element to be inserted.
+     * @param to the unsigned 64-bits index of the element to be discarded.
+     * @param inserted the element being inserted.
+     * @return the array with the specified elements shifted one position.
      */
     @Realtime(limit = LOG_N)
-    public abstract FractalArray<E> insert(int index, @Nullable E element);
+    public abstract FractalArray<E> shift(long from, long to, @Nullable E inserted);
     
     /**
-     * Removes from this array the element at the specified {@code index} position, shifting the elements from 
-     * {@code index} one position to the left (decrements the length of this array).
+     * Returns the next non-null element matching the specified predicate starting at the specified {@code from} index
+     * and towards the specified {@code to} index.
+     * This method calls the specified predicate only on all non-null elements, in ascending order when 
+     * {@code from < to}, in descending order when {@code to < from}. 
      * 
-     * @param index the index position of the element to remove.
-     * @return the array with the specified element removed.
-     * @throws ArrayIndexOutOfBoundsException if {@code (index < 0) || (index >= length()} 
+     * @param from the unsigned 64-bits index of the first element to consider.
+     * @param to the unsigned 64-bits index of the last element to consider.
+     * @param matching the filter called on {@code non-null} elements.
+     * @return the index of the next element matching the specified predicate or {@code -1} if there is none.
      */
-    @Realtime(limit = LOG_N)
-    public abstract FractalArray<E> remove(int index);
+    @Realtime(limit = LINEAR)
+    public abstract long next(long from, long to, Predicate<? super E> matching);
     
-    /**
-     * Returns the index of the nearest non-null value greater than or equal to the specified minimum index.
-     * If no such index exists {@code -1} is returned and the specified consumer is not called. 
-     * 
-     * @param minIndex the unsigned minimum index.
-     * @param found the consumer called when an element is found.
-     * @return the greatest index less than or equal to the specified index or {@code -1} if none.
-     */
-    @Realtime(limit=CONSTANT)
-    public abstract int ceiling(int minIndex, Consumer<? super E> found);
-
-    /**
-     * Returns the index of the nearest non-null value smaller than or equal to the specified maximum index.
-     * If no such value exists {@code 0} is returned and the specified consumer is not called.
-     * 
-     * @param maxIndex the unsigned maximum index.
-     * @param found the consumer called when an element is found.
-     * @return the smallest index greater than or equal to the specified index or {@code 0} if none.
-     */
-    @Realtime(limit=CONSTANT)
-    public abstract int floor(int maxIndex, Consumer<? super E> found);
- 
     /** 
-     * Returns an ascending iterator over non-null values starting from the specified index (convenience method). 
+     * Returns an ascending iterator over non-null elements starting from the specified index.
      * 
      * @param from the starting index (inclusive).
      */  
-    public Iterator<E> iterator(int from) {
+    public Iterator<E> iterator(long from) {
         return new AscendingIterator<E>(this, from);
     }
 
     /** 
-     * Returns a descending iterator over non-null values starting from the specified index (convenience method). 
+     * Returns a descending iterator over non-null elements starting from the specified index.
      * 
      * @param from the starting index (inclusive).
      */  
-    public Iterator<E> descendingIterator(int from) {
+    public Iterator<E> descendingIterator(long from) {
         return new DescendingIterator<E>(this, from);
     }
-    
+
     /** 
-     * Returns an unmodifiable view over this array (convenience method). 
+     * Returns an unmodifiable view over this array. 
      */  
     @Realtime(limit=CONSTANT)
     public FractalArray<E> unmodifiable() {
@@ -188,16 +181,17 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
     public Iterator<E> iterator() {
         return iterator(0);
     }
-
+    
     /** Ascending array iterator. */
-    private static final class AscendingIterator<E> implements Iterator<E>, Consumer<E> {
+    private static final class AscendingIterator<E> implements Iterator<E>, Predicate<E> {
         private final FractalArray<E> fractal;
-        private int nextIndex;
+        private Predicate<? super E> filter;
+        private long nextIndex;
         private E next;
- 
-        public AscendingIterator(FractalArray<E> fractal, int fromIndex) {
+   
+        public AscendingIterator(FractalArray<E> fractal, long from) {
              this.fractal = fractal;
-             this.nextIndex = fractal.ceiling(fromIndex, this);
+             this.nextIndex = fractal.next(from, -1, this);
         }
         
         @Override
@@ -207,25 +201,26 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
 
         @Override
         public boolean hasNext(Predicate<? super E> matching) {
-            while (next != null) {
-                if (matching.test(next)) return true;
-                next = null;
-                nextIndex = fractal.ceiling(nextIndex + 1, this);
-            }
-            return false;
+        	if (next == null) return false;
+        	if (matching.test(next)) return true;
+            next = null;
+            filter = matching;            
+            nextIndex = (nextIndex != -1) ? fractal.next(nextIndex + 1, -1, this) : -1;
+            filter = null;
+            return true;
         }
 
         @Override
         public E next() {
-            if (next != null) throw new NoSuchElementException();
+            if (next == null) throw new NoSuchElementException();
             E tmp = next;
             next = null;
-            nextIndex = fractal.ceiling(nextIndex + 1, this);
+            nextIndex = (nextIndex != -1) ? fractal.next(nextIndex + 1, -1, this) : -1;
             return tmp;
         }
 
         @Override
-        public int nextIndex() {
+        public long nextIndex() {
             return nextIndex;
         }
 
@@ -234,22 +229,25 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
             throw new UnsupportedOperationException(); // As per contract.                
         }
 
-        @Override
-        public void accept(E value) {
+		@Override
+		public boolean test(E value) {
+			if ((filter != null) && !filter.test(value)) return false;
             next = value;            
-        }        
+			return true;
+		}        
         
     }
     
     /** Descending array iterator. */
-    private static final class DescendingIterator<E> implements Iterator<E>, Consumer<E> {
+    private static final class DescendingIterator<E> implements Iterator<E>, Predicate<E> {
         private final FractalArray<E> fractal;
-        private int previousIndex;
+        private Predicate<? super E> filter;
+        private long previousIndex;
         private E previous;
  
-        public DescendingIterator(FractalArray<E> fractal, int fromIndex) {
+        public DescendingIterator(FractalArray<E> fractal, long fromIndex) {
              this.fractal = fractal;
-             this.previousIndex = fractal.floor(fromIndex, this);
+             this.previousIndex = fractal.next(fromIndex, 0, this);
         }
         
          @Override
@@ -259,25 +257,26 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
 
         @Override
         public boolean hasNext(Predicate<? super E> matching) {
-            while (previous != null) {
-                if (matching.test(previous)) return true;
-                previous = null;
-                previousIndex = fractal.floor(previousIndex - 1, this);
-            }
-            return false;
+        	if (previous == null) return false;
+        	if (matching.test(previous)) return true;
+            previous = null;
+            filter = matching;            
+            previousIndex = (previousIndex != 0) ? fractal.next(previousIndex - 1, 0, this) : -1;
+            filter = null;
+            return true;
         }
 
         @Override
         public E next() {
-            if (previous != null) throw new NoSuchElementException();
+            if (previous == null) throw new NoSuchElementException();
             E tmp = previous;
             previous = null;
-            previousIndex = fractal.floor(previousIndex - 1, this);
+            previousIndex = (previousIndex != 0) ? fractal.next(previousIndex - 1, 0, this) : -1;
             return tmp;
         }
 
         @Override
-        public int nextIndex() {
+        public long nextIndex() {
             return previousIndex;
         }
 
@@ -286,10 +285,12 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
             throw new UnsupportedOperationException(); // As per contract.                
         }
 
-        @Override
-        public void accept(E value) {
-            previous = value;
-        }
+		@Override
+		public boolean test(E value) {
+			if ((filter != null) && !filter.test(value)) return false;
+            previous = value;            
+			return true;
+		}
    
     }
     
@@ -302,45 +303,40 @@ public abstract class FractalArray<E> implements Cloneable, Serializable, Iterab
             this.target = target;
         }
         
-        @Override
+		@Override
+        public boolean isEmpty() {
+            return target.isEmpty();
+        }
+
+		@Override
         public FractalArray<E> clone() {
             return target.clone().unmodifiable();
         }
 
         @Override
-        public E get(int index) {
+        public E get(long index) {
             return target.get(index);
         }
 
-        @Override
-        public FractalArray<E> set(int index, E element) {
+		@Override
+		public FractalArray<E> clear(long index) {
+	        throw new UnsupportedOperationException("Unmodifiable");
+		}      
+
+		@Override
+        public FractalArray<E> set(long index, E element) {
             throw new UnsupportedOperationException("Unmodifiable");
         }
 
+		@Override
+		public FractalArray<E> shift(long from, long to, E inserted) {
+		    throw new UnsupportedOperationException("Unmodifiable");
+	 	}
+		
         @Override
-        public FractalArray<E> insert(int index, @Nullable E element) {
-            throw new UnsupportedOperationException("Unmodifiable");
+        public long next(long from, long to, Predicate<? super E> matching) {
+            return target.next(from, to, matching);
         }
-
-        @Override
-        public FractalArray<E> remove(int index) {
-            throw new UnsupportedOperationException("Unmodifiable");
-        }
-
-        @Override
-        public boolean isEmpty() {
-            return target.isEmpty();
-        }
-
-        @Override
-        public int ceiling(int minIndex, Consumer<? super E> value) {
-            return target.ceiling(minIndex, value);
-        }
-
-        @Override
-        public int floor(int maxIndex, Consumer<? super E> value) {
-            return target.floor(maxIndex, value);
-        }      
         
     }
     
